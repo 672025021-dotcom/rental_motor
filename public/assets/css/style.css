@@ -2,18 +2,18 @@
 
 :root {
     --color-primary: #1e293b;
-    --color-primary-dark: #0f172a;
+    --color-primary-dark: #eaecf3;
     --color-accent: #f59e0b;
     --color-accent-dark: #d97706;
     --color-success: #10b981;
-    --color-background: #f8fafc;
-    --color-surface: #ffffff;
-    --color-text: #1e293b;
+    --color-background: #104b89;
+    --color-surface: #d1b4b4;
+    --color-text: #010307;
     --color-muted: #64748b;
-    --color-border: #e2e8f0;
+    --color-border: #fafcff;
     --radius-card: 16px;
     --radius-control: 10px;
-    --shadow-card: 0 4px 20px rgba(15, 23, 42, 0.06);
+    --shadow-card: 0 4px 20px rgba(28, 32, 41, 0.06);
     --shadow-card-hover: 0 14px 32px rgba(15, 23, 42, 0.12);
     --transition-ui: 0.2s ease;
 }
@@ -39,12 +39,12 @@ h6,
 }
 
 .navbar.bg-dark {
-    background: linear-gradient(110deg, var(--color-primary-dark), var(--color-primary)) !important;
-    box-shadow: 0 4px 18px rgba(15, 23, 42, 0.14);
+    background: linear-gradient(#0D3B66;, var(--color-primary-dark), var(--color-primary)) !important;
+    box-shadow: 0 4px 18px hsla(225, 12%, 94%, 0.141);
 }
 
 .navbar-brand {
-    color: #fff;
+    color: #f9f1f1;
     font-weight: 800;
     letter-spacing: -0.04em;
 }
@@ -57,7 +57,7 @@ h6,
 
 .navbar .nav-link:hover,
 .navbar .nav-link:focus {
-    color: #fff;
+    color: hwb(0 6% 49% / 0.959);
 }
 
 main.container {
@@ -126,7 +126,7 @@ main.container {
 
 .card-header {
     border-bottom-color: var(--color-border);
-    background: #fff;
+    background: #f8f6f6;
 }
 
 .card-img-top {
