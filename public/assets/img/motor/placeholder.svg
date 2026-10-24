@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="600" viewBox="0 0 960 600" role="img" aria-labelledby="title">
+  <title id="title">Foto motor belum tersedia</title>
+  <rect width="960" height="600" fill="#e9ecef"/>
+  <g fill="none" stroke="#6c757d" stroke-linecap="round" stroke-linejoin="round" stroke-width="14">
+    <circle cx="300" cy="390" r="76"/>
+    <circle cx="660" cy="390" r="76"/>
+    <path d="M300 390h126l84-136h96l54 136H426l-72-116h-70m226-20h74m-16-42h56"/>
+  </g>
+  <text x="480" y="540" fill="#495057" font-family="Arial, sans-serif" font-size="30" text-anchor="middle">Foto motor belum tersedia</text>
+</svg>
