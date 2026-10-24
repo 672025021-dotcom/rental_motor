@@ -5,6 +5,9 @@ require_once __DIR__ . '/../app/models/Booking.php';
 
 requireLogin();
 $user = currentUser();
+foreach (Booking::getUserBookingIds($user['id']) as $bookingId) {
+    Booking::autoUpdateBookingStatus($bookingId);
+}
 $bookings = Booking::getUserBookings($user['id']);
 $successMessage = flash_message('success');
 $errorMessage = flash_message('error');

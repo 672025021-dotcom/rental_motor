@@ -154,7 +154,6 @@ class Booking
         }
 
         $connection = getDBConnection();
-        self::autoUpdateBookingStatus($connection, $user_id);
 
         $statement = $connection->prepare(
             'SELECT b.id, b.booking_code, b.start_date, b.end_date, b.total_days,
@@ -170,16 +169,30 @@ class Booking
         return $statement->fetchAll();
     }
 
+    public static function getUserBookingIds(int $user_id): array
+    {
+        if ($user_id < 1) {
+            return [];
+        }
+
+        $statement = getDBConnection()->prepare(
+            'SELECT id
+             FROM bookings
+             WHERE user_id = :user_id
+             ORDER BY id ASC'
+        );
+        $statement->execute(['user_id' => $user_id]);
+
+        return array_map('intval', $statement->fetchAll(PDO::FETCH_COLUMN));
+    }
+
     public static function getBookingDetailForUser(int $booking_id, int $user_id): ?array
     {
         if ($booking_id < 1 || $user_id < 1) {
             return null;
         }
 
-        $connection = getDBConnection();
-        self::autoUpdateBookingStatus($connection, $user_id);
-
-        $statement = $connection->prepare(
+        $statement = getDBConnection()->prepare(
             'SELECT b.*, m.brand, m.model, m.plate_number, m.type, m.engine_cc,
                     m.year, m.color, m.description, m.image
              FROM bookings AS b
@@ -196,44 +209,48 @@ class Booking
         return $booking === false ? null : $booking;
     }
 
-    private static function autoUpdateBookingStatus(PDO $pdo, ?int $user_id = null): void
+    public static function autoUpdateBookingStatus(int $booking_id): void
     {
-        if ($user_id !== null && $user_id < 1) {
+        if ($booking_id < 1) {
             return;
         }
 
-        $userFilter = $user_id === null ? '' : ' AND user_id = :user_id';
-        $parameters = $user_id === null ? [] : ['user_id' => $user_id];
-
+        $pdo = getDBConnection();
         $pdo->beginTransaction();
 
         try {
             $bookingStatement = $pdo->prepare(
-                "SELECT id, status,
-                        created_at <= DATE_SUB(NOW(), INTERVAL 2 MINUTE) AS age_at_least_two_minutes,
-                        created_at <= DATE_SUB(NOW(), INTERVAL 5 MINUTE) AS age_at_least_five_minutes,
-                        start_date <= CURRENT_DATE() AS start_date_reached,
+                'SELECT id, status,
+                        TIMESTAMPDIFF(SECOND, created_at, CURRENT_TIMESTAMP) AS age_seconds,
                         end_date < CURRENT_DATE() AS end_date_passed
                  FROM bookings
-                 WHERE status NOT IN ('selesai', 'dibatalkan')
-                   AND (
-                       (status = 'pending' AND created_at <= DATE_SUB(NOW(), INTERVAL 2 MINUTE))
-                       OR (
-                           status = 'dikonfirmasi'
-                           AND created_at <= DATE_SUB(NOW(), INTERVAL 5 MINUTE)
-                           AND start_date <= CURRENT_DATE()
-                       )
-                       OR (status = 'berjalan' AND end_date < CURRENT_DATE())
-                   )" . $userFilter . '
-                 ORDER BY id ASC
+                 WHERE id = :booking_id
                  FOR UPDATE'
             );
-            $bookingStatement->execute($parameters);
-            $bookings = $bookingStatement->fetchAll();
+            $bookingStatement->execute(['booking_id' => $booking_id]);
+            $booking = $bookingStatement->fetch();
 
-            if ($bookings === []) {
+            if ($booking === false || $booking['status'] === 'dibatalkan') {
                 $pdo->commit();
                 return;
+            }
+
+            $statuses = ['pending', 'dikonfirmasi', 'berjalan', 'selesai'];
+            $currentIndex = array_search($booking['status'], $statuses, true);
+            if ($currentIndex === false || $booking['status'] === 'selesai') {
+                $pdo->commit();
+                return;
+            }
+
+            $ageSeconds = (int) $booking['age_seconds'];
+            if ((bool) $booking['end_date_passed']) {
+                $targetIndex = 3;
+            } elseif ($ageSeconds < 120) {
+                $targetIndex = 0;
+            } elseif ($ageSeconds < 300) {
+                $targetIndex = 1;
+            } else {
+                $targetIndex = 2;
             }
 
             $updateStatement = $pdo->prepare(
@@ -242,62 +259,103 @@ class Booking
                  WHERE id = :booking_id AND status = :old_status'
             );
             $logStatement = $pdo->prepare(
-                'INSERT INTO booking_status_logs (booking_id, old_status, new_status, changed_by, note)
-                 VALUES (:booking_id, :old_status, :new_status, NULL, :note)'
+                "INSERT INTO booking_status_logs (booking_id, old_status, new_status, changed_by, note)
+                 VALUES (:booking_id, :old_status, :new_status, NULL, 'Sistem Otomatis')"
             );
 
-            foreach ($bookings as $booking) {
-                $transitions = [
-                    [
-                        'old_status' => 'pending',
-                        'new_status' => 'dikonfirmasi',
-                        'eligible' => (bool) $booking['age_at_least_two_minutes'],
-                        'note' => 'Disetujui otomatis oleh sistem (simulasi admin)',
-                    ],
-                    [
-                        'old_status' => 'dikonfirmasi',
-                        'new_status' => 'berjalan',
-                        'eligible' => (bool) $booking['age_at_least_five_minutes']
-                            && (bool) $booking['start_date_reached'],
-                        'note' => 'Serah terima motor berhasil (simulasi otomatis)',
-                    ],
-                    [
-                        'old_status' => 'berjalan',
-                        'new_status' => 'selesai',
-                        'eligible' => (bool) $booking['end_date_passed'],
-                        'note' => 'Masa sewa berakhir & motor dikembalikan (simulasi otomatis)',
-                    ],
-                ];
-
-                foreach ($transitions as $transition) {
-                    if ($booking['status'] !== $transition['old_status'] || !$transition['eligible']) {
-                        continue;
-                    }
-
-                    $updateStatement->execute([
-                        'new_status' => $transition['new_status'],
-                        'booking_id' => $booking['id'],
-                        'old_status' => $transition['old_status'],
-                    ]);
-                    if ($updateStatement->rowCount() !== 1) {
-                        break;
-                    }
-
-                    $logStatement->execute([
-                        'booking_id' => $booking['id'],
-                        'old_status' => $transition['old_status'],
-                        'new_status' => $transition['new_status'],
-                        'note' => $transition['note'],
-                    ]);
-
-                    $booking['status'] = $transition['new_status'];
+            for ($nextIndex = $currentIndex + 1; $nextIndex <= $targetIndex; $nextIndex++) {
+                $oldStatus = $statuses[$nextIndex - 1];
+                $newStatus = $statuses[$nextIndex];
+                $updateStatement->execute([
+                    'new_status' => $newStatus,
+                    'booking_id' => $booking_id,
+                    'old_status' => $oldStatus,
+                ]);
+                if ($updateStatement->rowCount() !== 1) {
+                    throw new BookingStateException('Status pesanan berubah sebelum simulasi selesai.');
                 }
+
+                $logStatement->execute([
+                    'booking_id' => $booking_id,
+                    'old_status' => $oldStatus,
+                    'new_status' => $newStatus,
+                ]);
             }
 
             $pdo->commit();
         } catch (Throwable $exception) {
             if ($pdo->inTransaction()) {
                 $pdo->rollBack();
+            }
+
+            throw $exception;
+        }
+    }
+
+    public static function deleteBookingFile(int $booking_id, int $user_id, string $file_type): bool
+    {
+        if ($booking_id < 1 || $user_id < 1 || !in_array($file_type, ['ktp', 'sim'], true)) {
+            return false;
+        }
+
+        $column = $file_type . '_file';
+        $directory = $file_type === 'ktp' ? UPLOAD_KTP_DIR : UPLOAD_SIM_DIR;
+        $connection = getDBConnection();
+        $connection->beginTransaction();
+
+        try {
+            $bookingStatement = $connection->prepare(
+                "SELECT status, {$column} AS file_name
+                 FROM bookings
+                 WHERE id = :booking_id AND user_id = :user_id
+                 FOR UPDATE"
+            );
+            $bookingStatement->execute([
+                'booking_id' => $booking_id,
+                'user_id' => $user_id,
+            ]);
+            $booking = $bookingStatement->fetch();
+
+            if ($booking === false) {
+                $connection->rollBack();
+                return false;
+            }
+            if (!in_array($booking['status'], ['selesai', 'dibatalkan'], true)) {
+                throw new BookingStateException('Berkas hanya dapat dihapus setelah pesanan selesai atau dibatalkan.');
+            }
+
+            $fileName = (string) $booking['file_name'];
+            if ($fileName === '') {
+                $connection->commit();
+                return false;
+            }
+
+            $safeFileName = basename(str_replace('\\', '/', $fileName));
+            $filePath = rtrim($directory, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . $safeFileName;
+            if (is_file($filePath) && !@unlink($filePath) && is_file($filePath)) {
+                throw new BookingStateException('Berkas gagal dihapus dari server.');
+            }
+
+            $updateStatement = $connection->prepare(
+                "UPDATE bookings
+                 SET {$column} = ''
+                 WHERE id = :booking_id AND user_id = :user_id"
+            );
+            $updateStatement->execute([
+                'booking_id' => $booking_id,
+                'user_id' => $user_id,
+            ]);
+
+            if ($updateStatement->rowCount() !== 1) {
+                throw new BookingStateException('Data berkas pesanan gagal diperbarui.');
+            }
+
+            $connection->commit();
+
+            return true;
+        } catch (Throwable $exception) {
+            if ($connection->inTransaction()) {
+                $connection->rollBack();
             }
 
             throw $exception;

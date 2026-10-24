@@ -14,6 +14,8 @@ if ($booking === null) {
     redirect('pesanan.php');
 }
 
+Booking::autoUpdateBookingStatus($bookingId);
+$booking = Booking::getBookingDetailForUser($bookingId, $user['id']);
 $logs = Booking::getBookingStatusLogs($bookingId, $user['id']);
 $successMessage = flash_message('success');
 $errorMessage = flash_message('error');
@@ -86,10 +88,26 @@ require __DIR__ . '/../app/views/layout/header.php';
                     <?php endif; ?>
                 </dl>
                 <h3 class="h6">Berkas yang Diunggah</h3>
-                <ul class="mb-0">
-                    <li>KTP: <?= htmlspecialchars(basename($booking['ktp_file']), ENT_QUOTES, 'UTF-8') ?></li>
-                    <li>SIM: <?= htmlspecialchars(basename($booking['sim_file']), ENT_QUOTES, 'UTF-8') ?></li>
+                <ul class="mb-3">
+                    <li>KTP: <?= $booking['ktp_file'] !== '' ? htmlspecialchars(basename($booking['ktp_file']), ENT_QUOTES, 'UTF-8') : 'Tidak tersedia' ?></li>
+                    <li>SIM: <?= $booking['sim_file'] !== '' ? htmlspecialchars(basename($booking['sim_file']), ENT_QUOTES, 'UTF-8') : 'Tidak tersedia' ?></li>
                 </ul>
+                <?php if (in_array($booking['status'], ['selesai', 'dibatalkan'], true)
+                    && ($booking['ktp_file'] !== '' || $booking['sim_file'] !== '')): ?>
+                    <div class="d-flex flex-wrap gap-2">
+                        <?php foreach (['ktp' => 'KTP', 'sim' => 'SIM'] as $fileType => $fileLabel): ?>
+                            <?php if ($booking[$fileType . '_file'] !== ''): ?>
+                                <form method="post" action="<?= htmlspecialchars(BASE_URL, ENT_QUOTES, 'UTF-8') ?>/hapus_berkas.php"
+                                      onsubmit="return confirm('Hapus berkas <?= htmlspecialchars($fileLabel, ENT_QUOTES, 'UTF-8') ?> dari server?');">
+                                    <input type="hidden" name="booking_id" value="<?= (int) $booking['id'] ?>">
+                                    <input type="hidden" name="file_type" value="<?= htmlspecialchars($fileType, ENT_QUOTES, 'UTF-8') ?>">
+                                    <input type="hidden" name="_csrf_token" value="<?= htmlspecialchars($_SESSION['_csrf_token'] ??= bin2hex(random_bytes(32)), ENT_QUOTES, 'UTF-8') ?>">
+                                    <button class="btn btn-sm btn-outline-danger" type="submit">Hapus Berkas <?= htmlspecialchars($fileLabel, ENT_QUOTES, 'UTF-8') ?></button>
+                                </form>
+                            <?php endif; ?>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
             </div>
         </div>
     </section>
